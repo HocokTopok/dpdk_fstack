@@ -1,37 +1,44 @@
-# Запуск и проверка
+# Запись демонстрации
 
-Выполняй по одному блоку и присылай весь вывод перед переходом к следующему. Начни с блока 1. Сервер на Mac уже запущен — оставь его открытым.
+Исходники находятся в `source/`; исполняемые файлы создаются в корне репозитория.
 
-## Блок 1 — Ubuntu: подключить Ethernet
+Параметры меняются в `scripts/settings.sh` между строками `# //`.
+`SERVER_IP` — IP Mac. Остальные значения уже заполнены под текущую Ubuntu.
 
-```bash
-cd "$HOME/dpdk_fstack"
-export APP_DIR="$PWD"
-export SERVER_IP="192.168.1.103"
-export IFACE="enp44s0"
-export PCI_ADDR="0000:2c:00.0"
-
-sudo nmcli device connect "$IFACE"
-ip -br addr
-ip route get "$SERVER_IP"
-```
-
-## Блок 2 — Ubuntu: собрать и запустить обычный клиент
+Узнать IP Mac:
 
 ```bash
-cd "$HOME/dpdk_fstack" &&
-g++ -std=c++17 -O2 -Wall -Wextra -pthread client_plain.cpp -o client_plain &&
-SERVER_IP="192.168.1.103" ./client_plain
+bash scripts/00_network_info.sh
 ```
 
-## Блок 3 — Ubuntu: найти DPDK и F-Stack
+Перед записью обновить файлы на обоих ноутбуках. На Ubuntu должны быть подключены Ethernet и Wi-Fi. Скрипты запускать обычным пользователем из папки репозитория.
+
+1. Начать запись экранов. На Mac:
 
 ```bash
-uname -a
-cat /etc/os-release
-cat /proc/cmdline
-find /sys/kernel/iommu_groups -mindepth 1 -maxdepth 1 -type d
-grep -E 'HugePages|Hugepagesize|Hugetlb' /proc/meminfo
-findmnt -t hugetlbfs
-find "$HOME" -type f \( -name libdpdk.pc -o -name libfstack.a -o -name ff_api.h -o -name f-stack.conf -o -name dpdk-devbind.py \) -print 2>/dev/null
+bash scripts/01_server_mac.sh fstack
 ```
+
+2. Когда сервер ждёт подключения, на Ubuntu:
+
+```bash
+bash scripts/02_client_fstack_ubuntu.sh
+```
+
+3. Дождаться `FSTACK_OK` и `RESTORE_OK`. На Mac:
+
+```bash
+bash scripts/01_server_mac.sh plain_wifi
+```
+
+4. Когда сервер ждёт подключения, на Ubuntu:
+
+```bash
+bash scripts/03_client_wifi_ubuntu.sh
+```
+
+5. Дождаться `PLAIN_WIFI_OK`. Завершить запись. CSV на Mac и логи на обоих ноутбуках находятся в `results/`.
+
+При ошибке или Ctrl+C F-Stack-скрипт восстанавливает исходный драйвер, профиль Ethernet, состояние интерфейса, число hugepages и созданные им ресурсы. Исходный конфиг не изменяется. После аварийного выключения или `kill -9` автоматическое восстановление невозможно; путь команды ручного восстановления указан в логе (`04_restore_ubuntu.sh`). DHCP может выдать другой IP после восстановления профиля.
+
+Сравнение F-Stack по Ethernet с обычным клиентом по Wi-Fi показывает разницу двух систем целиком. Для отдельной оценки сетевого стека нужны оба клиента на одном Ethernet-подключении.

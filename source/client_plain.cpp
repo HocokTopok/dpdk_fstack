@@ -47,6 +47,19 @@ int main()
             fail("socket");
         }
 
+        const char* interface = std::getenv("CLIENT_INTERFACE");
+        if (interface != nullptr && *interface != '\0') {
+#ifdef __linux__
+            if (setsockopt(fd, SOL_SOCKET, SO_BINDTODEVICE, interface,
+                           static_cast<socklen_t>(std::strlen(interface) + 1)) < 0) {
+                fail("SO_BINDTODEVICE");
+            }
+            std::cout << "Bound to interface: " << interface << '\n';
+#else
+            throw std::runtime_error("CLIENT_INTERFACE requires Linux");
+#endif
+        }
+
         const int enabled = 1;
         const timeval timeout{30, 0};
         if (setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &enabled, sizeof(enabled)) < 0 ||
@@ -59,6 +72,16 @@ int main()
         if (connect(fd, reinterpret_cast<const sockaddr*>(&server), sizeof(server)) < 0) {
             fail("connect");
         }
+        sockaddr_in local{};
+        socklen_t local_size = sizeof(local);
+        if (getsockname(fd, reinterpret_cast<sockaddr*>(&local), &local_size) < 0) {
+            fail("getsockname");
+        }
+        std::array<char, INET_ADDRSTRLEN> local_ip{};
+        if (inet_ntop(AF_INET, &local.sin_addr, local_ip.data(), local_ip.size()) == nullptr) {
+            fail("inet_ntop");
+        }
+        std::cout << "Local IP: " << local_ip.data() << '\n';
         std::cout << "Connected. Echoing data until the server closes the connection.\n";
 
         std::array<char, 4096> buffer{};
