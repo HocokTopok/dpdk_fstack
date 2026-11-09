@@ -43,11 +43,25 @@ struct Client {
     Clock::time_point last_activity = Clock::now();
 };
 
+void stop(Client& client)
+{
+    // ff_close may send a TCP FIN and must run before ff_run releases DPDK resources.
+    if (client.socket >= 0) {
+        const int socket = client.socket;
+        client.socket = -1;
+        if (ff_close(socket) < 0) {
+            std::cerr << "ff_close: " << std::strerror(errno) << '\n';
+            client.exit_code = EXIT_FAILURE;
+        }
+    }
+    ff_stop_run();
+}
+
 int fail(Client& client, const char* operation, int error = errno)
 {
     std::cerr << operation << ": " << std::strerror(error) << '\n';
     client.exit_code = EXIT_FAILURE;
-    ff_stop_run();
+    stop(client);
     return -1;
 }
 
@@ -57,7 +71,7 @@ int loop(void* argument)
 
     if (stop_requested) {
         client.exit_code = EXIT_FAILURE;
-        ff_stop_run();
+        stop(client);
         return 0;
     }
 
@@ -121,7 +135,7 @@ int loop(void* argument)
                 return fail(client, "Server closed without sending any messages", EPROTO);
             }
             // The server closes only after receiving its final echo.
-            ff_stop_run();
+            stop(client);
             return 0;
         }
         if (received < 0) {
@@ -161,6 +175,7 @@ int loop(void* argument)
 
 int main(int argc, char** argv)
 {
+    std::cout << std::unitbuf;
     Client client;
     const char* server_ip = std::getenv("SERVER_IP");
     if (server_ip == nullptr || inet_pton(AF_INET, server_ip, &client.server.sin_addr) != 1) {
@@ -201,7 +216,10 @@ int main(int argc, char** argv)
     std::cout << "Connecting to " << server_ip << ":3333\n";
     client.last_activity = Clock::now();
     ff_run(loop, &client);
-    ff_close(client.socket);
+    if (client.socket >= 0) {
+        std::cerr << "F-Stack loop returned before socket shutdown\n";
+        return EXIT_FAILURE;
+    }
 
     std::cout << "Echoed messages (including warmup): " << client.echoes << '\n';
     return client.exit_code;
