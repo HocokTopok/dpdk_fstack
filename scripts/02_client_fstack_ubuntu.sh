@@ -4,6 +4,15 @@ source "$(cd "$(dirname "$0")" && pwd)/common.sh"
 require_linux
 need sudo ip nmcli python3 pkg-config g++ flock timeout findmnt mountpoint readlink awk grep find wc tee modprobe mount umount
 check_ip
+CLIENT_RUNNER=()
+if [[ "${FSTACK_GDB:-0}" == 1 ]]; then
+    need gdb
+    CLIENT_RUNNER=(gdb --batch --return-child-result
+        -ex 'set pagination off' -ex 'set confirm off'
+        -ex 'set disable-randomization off'
+        -ex 'handle SIGPIPE nostop noprint pass'
+        -ex run -ex 'bt 25' --args)
+fi
 [[ "$HUGE_TARGET" =~ ^[0-9]+$ && "$RUN_TIMEOUT" =~ ^[0-9]+$ ]] || fail 'Invalid numeric settings.'
 (( HUGE_TARGET > 0 && RUN_TIMEOUT > 0 )) || fail 'Numeric settings must be positive.'
 lock_ubuntu
@@ -32,7 +41,7 @@ printf 'DPDK=%s\nDPDK_LIB=%s\nDRIVER=%s\n' "$(pkg-config --modversion libdpdk)" 
 grep -q '"file_prefix"' "$FSTACK_SRC/lib/ff_config.c" || fail 'This F-Stack version needs its file_prefix support checked.'
 read -r -a DPDK_CFLAGS <<< "$(pkg-config --cflags libdpdk)"
 read -r -a DPDK_LIBS <<< "$(pkg-config --static --libs libdpdk)"
-g++ -std=c++17 -O2 -Wall -Wextra -pthread "$SOURCE_DIR/client.cpp" -o "$APP_DIR/client_fstack" \
+g++ -std=c++17 -O2 -g -Wall -Wextra -pthread "$SOURCE_DIR/client.cpp" -o "$APP_DIR/client_fstack" \
     -I"$FSTACK_SRC/lib" "${DPDK_CFLAGS[@]}" \
     -Wl,--whole-archive "$FSTACK_SRC/lib/libfstack.a" -Wl,--no-whole-archive \
     "${DPDK_LIBS[@]}" -Wl,-rpath,"$DPDK_LIB" -lcrypto -lrt -ldl -lm
@@ -189,7 +198,7 @@ printf 'FSTACK_START\n'
 sudo timeout --signal=TERM --kill-after=5s "${RUN_TIMEOUT}s" bash -c \
     'printf "%s\n" "$$" > "$1"; shift; exec "$@"' bash "$RUN_DIR/client.pid" \
     env SERVER_IP="$SERVER_IP" LD_LIBRARY_PATH="$DPDK_LIB${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
-    "$APP_DIR/client_fstack" --conf "$RUN_DIR/f-stack.conf" --proc-type=primary --proc-id=0 &
+    "${CLIENT_RUNNER[@]}" "$APP_DIR/client_fstack" --conf "$RUN_DIR/f-stack.conf" --proc-type=primary --proc-id=0 &
 CHILD_PID=$!
 STATUS=0
 wait "$CHILD_PID" || STATUS=$?

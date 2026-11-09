@@ -41,10 +41,12 @@ if (( NETWORK_CHANGED )); then
 fi
 
 if [[ "$PREFIX" =~ ^dpdk_demo_[0-9]+_[0-9]+$ ]]; then
-    if mountpoint -q "$HUGE_DIR"; then
-        restore_step sudo find "$HUGE_DIR" -maxdepth 1 -type f -name "${PREFIX}*" -delete
-    fi
-    restore_step sudo rm -rf -- "$RUNTIME_ROOT/$PREFIX"
+    for ACTUAL_PREFIX in "$PREFIX" "container-$PREFIX"; do
+        if mountpoint -q "$HUGE_DIR"; then
+            restore_step sudo find "$HUGE_DIR" -maxdepth 1 -type f -name "${ACTUAL_PREFIX}*" -delete
+        fi
+        restore_step sudo rm -rf -- "$RUNTIME_ROOT/$ACTUAL_PREFIX"
+    done
 else
     printf 'RESTORE_ERROR: unexpected DPDK prefix\n' >&2
     ERRORS=1
