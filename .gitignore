@@ -3,3 +3,5 @@
 /client_plain
 /client_fstack
 /results/
+/.venv/
+__pycache__/
