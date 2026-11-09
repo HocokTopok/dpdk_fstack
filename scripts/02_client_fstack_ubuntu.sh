@@ -128,23 +128,28 @@ ETH_IP="$(ipv4 "$ETH_IFACE")"
 ip -4 route get "$SERVER_IP" oif "$ETH_IFACE"
 printf 'ETH_IP=%s\nSERVER_IP=%s\n' "$ETH_IP" "$SERVER_IP"
 
-python3 - "$FSTACK_CONF" "$RUN_DIR/f-stack.conf" "$ETH_IFACE" "$PCI_ADDR" "$PREFIX" <<'PY'
+python3 - "$FSTACK_CONF" "$RUN_DIR/f-stack.conf" "$ETH_IFACE" "$PCI_ADDR" "$PREFIX" "$SERVER_IP" <<'PY'
 import configparser
 import ipaddress
 import json
 import subprocess
 import sys
-source, target, interface, pci, prefix = sys.argv[1:]
+source, target, interface, pci, prefix, server_ip = sys.argv[1:]
 addresses = json.loads(subprocess.check_output(["ip", "-j", "-4", "addr", "show", "dev", interface]))
 address = next(a for a in addresses[0]["addr_info"] if a["family"] == "inet" and a["scope"] == "global")
 network = ipaddress.IPv4Network(f'{address["local"]}/{address["prefixlen"]}', strict=False)
-routes = json.loads(subprocess.check_output(["ip", "-j", "-4", "route", "show", "default", "dev", interface]))
-gateway = next((r["gateway"] for r in routes if "gateway" in r), None)
-if gateway is None:
-    raise SystemExit("No Ethernet default gateway")
 config = configparser.ConfigParser()
 with open(source) as f:
     config.read_file(f)
+routes = json.loads(subprocess.check_output(["ip", "-j", "-4", "route", "get", server_ip, "oif", interface]))
+gateway = next((r["gateway"] for r in routes if "gateway" in r), None)
+if gateway is None:
+    if ipaddress.IPv4Address(server_ip) not in network:
+        raise SystemExit("No Ethernet gateway for a server outside the local subnet")
+    candidate = ipaddress.IPv4Address(config.get("port0", "gateway", fallback="0.0.0.0"))
+    gateway = str(candidate) if candidate in network and candidate not in (
+        network.network_address, network.broadcast_address, ipaddress.IPv4Address(address["local"])
+    ) else "0.0.0.0"
 config["dpdk"].update(allow=pci, port_list="0", lcore_mask="1", idle_sleep="0", pkt_tx_delay="0", file_prefix=prefix)
 config["port0"].update(addr=address["local"], netmask=str(network.netmask), broadcast=str(network.broadcast_address), gateway=gateway)
 with open(target, "w") as f:
